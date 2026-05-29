@@ -11,7 +11,7 @@ export const Route = createFileRoute("/planner")({
       { name: "description", content: "Smart study recommendations, priority-based scheduling and daily optimization." },
     ],
   }),
-  component: Planner;
+  component: Planner,
 });
 
 const defaultPlan = [
