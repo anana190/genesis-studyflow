@@ -81,10 +81,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "description", content: "AI-powered study planner with smart scheduling, focus timer, and productivity analytics built for Gen Z students." },
       { name: "author", content: "StudyFlow AI" },
       { property: "og:title", content: "StudyFlow AI — Study Smarter, Not Harder" },
-      { property: "og:description", content: "AI-powered study planner with smart scheduling, focus timer, and productivity analytics." },
+      { property: "og:description", content: "AI-powered study planner with smart scheduling, focus timer, and productivity analytics built for Gen Z students." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "StudyFlow AI — Study Smarter, Not Harder" },
+      { name: "twitter:description", content: "AI-powered study planner with smart scheduling, focus timer, and productivity analytics built for Gen Z students." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/6eb57bdc-809f-43dd-a2cb-0ad5ab6d7631/id-preview-de4787cb--b0194aed-b89f-4811-ba13-01b4217d1e42.lovable.app-1780075858095.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/6eb57bdc-809f-43dd-a2cb-0ad5ab6d7631/id-preview-de4787cb--b0194aed-b89f-4811-ba13-01b4217d1e42.lovable.app-1780075858095.png" },
     ],
     links: [
       {
