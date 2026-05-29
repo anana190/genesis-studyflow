@@ -77,11 +77,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "StudyFlow AI — Study Smarter, Not Harder" },
+      { name: "description", content: "AI-powered study planner with smart scheduling, focus timer, and productivity analytics built for Gen Z students." },
+      { name: "author", content: "StudyFlow AI" },
+      { property: "og:title", content: "StudyFlow AI — Study Smarter, Not Harder" },
+      { property: "og:description", content: "AI-powered study planner with smart scheduling, focus timer, and productivity analytics." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
@@ -105,7 +105,7 @@ function RootShell({ children }: { children: ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body className="dark antialiased">
         {children}
         <Scripts />
       </body>
