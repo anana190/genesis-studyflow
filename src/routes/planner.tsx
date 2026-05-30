@@ -8,6 +8,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { generatePlan } from "@/lib/planner.functions";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/planner")({
   head: () => ({
@@ -50,6 +57,16 @@ function Planner() {
   const [generating, setGenerating] = useState(false);
   const [plan, setPlan] = useState<Block[]>([]);
   const gen = useServerFn(generatePlan);
+  const [addOpen, setAddOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    time_label: "09:00",
+    duration: "45m",
+    title: "",
+    tag: "Deep Work",
+    priority: "med" as "high" | "med" | "low",
+    reason: "",
+  });
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -80,6 +97,34 @@ function Planner() {
       toast.error(e instanceof Error ? e.message : "Failed to generate plan");
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const addBlock = async () => {
+    if (!user) return toast.error("Sign in first");
+    if (!form.title.trim()) return toast.error("Title is required");
+    setSaving(true);
+    try {
+      const { error } = await supabase.from("schedule_blocks").insert({
+        user_id: user.id,
+        block_date: today,
+        time_label: form.time_label,
+        duration: form.duration || null,
+        title: form.title.trim(),
+        tag: form.tag || null,
+        priority: form.priority,
+        reason: form.reason || null,
+        sort_order: plan.length,
+      });
+      if (error) throw new Error(error.message);
+      await loadPlan();
+      toast.success("Block added");
+      setAddOpen(false);
+      setForm((f) => ({ ...f, title: "", reason: "" }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to add block");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -182,7 +227,10 @@ function Planner() {
         <div className="glass rounded-2xl p-6 lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-semibold">Today's schedule</h2>
-            <button className="inline-flex items-center gap-1 rounded-lg glass px-3 py-1.5 text-xs hover:bg-white/10">
+            <button
+              onClick={() => setAddOpen(true)}
+              className="inline-flex items-center gap-1 rounded-lg glass px-3 py-1.5 text-xs hover:bg-white/10"
+            >
               <Plus className="h-3 w-3" /> Add block
             </button>
           </div>
@@ -240,6 +288,96 @@ function Planner() {
           </div>
         </div>
       </div>
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="glass-strong border-white/10 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add study block</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground">Time</label>
+                <input
+                  type="time"
+                  value={form.time_label}
+                  onChange={(e) => setForm({ ...form, time_label: e.target.value })}
+                  className="mt-1 w-full rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-primary/60"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Duration</label>
+                <input
+                  value={form.duration}
+                  onChange={(e) => setForm({ ...form, duration: e.target.value })}
+                  placeholder="45m"
+                  className="mt-1 w-full rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-primary/60"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Title</label>
+              <input
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                placeholder="e.g. Calculus problem set"
+                className="mt-1 w-full rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-primary/60"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground">Tag</label>
+                <select
+                  value={form.tag}
+                  onChange={(e) => setForm({ ...form, tag: e.target.value })}
+                  className="mt-1 w-full rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-primary/60"
+                >
+                  {["Deep Work", "Memory", "Build", "Writing", "Practice", "Recovery", "Review"].map((t) => (
+                    <option key={t} value={t} className="bg-background">{t}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Priority</label>
+                <select
+                  value={form.priority}
+                  onChange={(e) => setForm({ ...form, priority: e.target.value as "high" | "med" | "low" })}
+                  className="mt-1 w-full rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-primary/60"
+                >
+                  <option value="high" className="bg-background">High</option>
+                  <option value="med" className="bg-background">Medium</option>
+                  <option value="low" className="bg-background">Low</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Note (optional)</label>
+              <input
+                value={form.reason}
+                onChange={(e) => setForm({ ...form, reason: e.target.value })}
+                placeholder="Why this block?"
+                className="mt-1 w-full rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-primary/60"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setAddOpen(false)}
+              className="rounded-lg px-4 py-2 text-sm text-muted-foreground hover:bg-white/5"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={addBlock}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-lg gradient-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            >
+              <Plus className="h-4 w-4" />
+              {saving ? "Adding…" : "Add block"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
