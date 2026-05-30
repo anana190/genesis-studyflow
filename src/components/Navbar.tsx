@@ -1,7 +1,8 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Sparkles, Menu, X } from "lucide-react";
+import { Sparkles, Menu, X, LogOut } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
 
 const links = [
   { to: "/", label: "Home" },
@@ -13,6 +14,7 @@ const links = [
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { user, signOut, loading } = useAuth();
 
   return (
     <header className="sticky top-0 z-50 w-full">
@@ -48,12 +50,35 @@ export function Navbar() {
           </div>
 
           <div className="hidden md:block">
-            <Link
-              to="/dashboard"
-              className="inline-flex items-center rounded-xl gradient-primary px-4 py-2 text-sm font-medium text-white shadow-lg shadow-primary/30 transition-transform hover:scale-[1.03]"
-            >
-              Get Started
-            </Link>
+            {loading ? null : user ? (
+              <div className="flex items-center gap-2">
+                <span className="hidden lg:inline max-w-[160px] truncate rounded-lg bg-white/5 px-3 py-1.5 text-xs text-muted-foreground">
+                  {user.email}
+                </span>
+                <button
+                  onClick={() => signOut()}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-white/10"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Link
+                  to="/auth"
+                  className="rounded-xl px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+                >
+                  Sign in
+                </Link>
+                <Link
+                  to="/auth"
+                  className="inline-flex items-center rounded-xl gradient-primary px-4 py-2 text-sm font-medium text-white shadow-lg shadow-primary/30 transition-transform hover:scale-[1.03]"
+                >
+                  Get Started
+                </Link>
+              </div>
+            )}
           </div>
 
           <button
@@ -77,13 +102,25 @@ export function Navbar() {
                 {l.label}
               </Link>
             ))}
-            <Link
-              to="/dashboard"
-              onClick={() => setOpen(false)}
-              className="mt-1 rounded-lg gradient-primary px-3 py-2 text-center text-sm font-medium text-white"
-            >
-              Get Started
-            </Link>
+            {user ? (
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  signOut();
+                }}
+                className="mt-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-center text-sm font-medium text-foreground"
+              >
+                Sign out ({user.email})
+              </button>
+            ) : (
+              <Link
+                to="/auth"
+                onClick={() => setOpen(false)}
+                className="mt-1 rounded-lg gradient-primary px-3 py-2 text-center text-sm font-medium text-white"
+              >
+                Sign in / Sign up
+              </Link>
+            )}
           </div>
         )}
       </div>
