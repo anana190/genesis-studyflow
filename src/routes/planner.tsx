@@ -1,7 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import { Sparkles, Wand2, Clock, Brain, Target, Zap, ChevronRight, Plus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { generatePlan } from "@/lib/planner.functions";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/planner")({
@@ -13,21 +18,6 @@ export const Route = createFileRoute("/planner")({
   }),
   component: Planner,
 });
-
-const defaultPlan = [
-  { time: "08:30", dur: "45m", title: "Active recall: Biology Ch.4", tag: "Memory", priority: "high",
-    why: "Quiz in 2 days · spaced repetition window opens this morning" },
-  { time: "09:30", dur: "1h 30m", title: "Deep work: Calculus integration", tag: "Deep Work", priority: "high",
-    why: "Highest cognitive load — scheduled in your peak focus window" },
-  { time: "11:15", dur: "20m", title: "Break + walk", tag: "Recovery", priority: "low",
-    why: "Reset attention before next session" },
-  { time: "11:35", dur: "1h", title: "CS project — auth module", tag: "Build", priority: "med",
-    why: "Project due in 8 days · broken into focused chunks" },
-  { time: "14:00", dur: "45m", title: "History essay outline", tag: "Writing", priority: "med",
-    why: "Easier creative task for post-lunch dip" },
-  { time: "15:30", dur: "30m", title: "Spanish vocab deck", tag: "Practice", priority: "low",
-    why: "Maintain daily streak with low effort review" },
-];
 
 const recs = [
   { icon: Brain, title: "Front-load tough subjects", desc: "Your focus peaks 9–11 AM. Schedule Math & Physics there." },
@@ -44,18 +34,74 @@ function priorityDot(p: string) {
   return map[p];
 }
 
+type Block = {
+  id: string;
+  time_label: string;
+  duration: string | null;
+  title: string;
+  tag: string | null;
+  priority: string;
+  reason: string | null;
+};
+
 function Planner() {
+  const { user, loading } = useAuth();
   const [goal, setGoal] = useState("Ace my calculus midterm + finish CS project");
   const [generating, setGenerating] = useState(false);
-  const [plan, setPlan] = useState(defaultPlan);
+  const [plan, setPlan] = useState<Block[]>([]);
+  const gen = useServerFn(generatePlan);
 
-  const regenerate = () => {
-    setGenerating(true);
-    setTimeout(() => {
-      setPlan((p) => [...p].sort(() => Math.random() - 0.5));
-      setGenerating(false);
-    }, 900);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const loadPlan = async () => {
+    const { data, error } = await supabase
+      .from("schedule_blocks")
+      .select("*")
+      .eq("block_date", today)
+      .order("sort_order", { ascending: true });
+    if (error) return;
+    setPlan((data as Block[]) ?? []);
   };
+
+  useEffect(() => {
+    if (user) loadPlan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const regenerate = async () => {
+    if (!user) return toast.error("Sign in to generate a plan");
+    if (!goal.trim()) return toast.error("Tell us your goal first");
+    setGenerating(true);
+    try {
+      await gen({ data: { goal: goal.trim() } });
+      await loadPlan();
+      toast.success("Plan generated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to generate plan");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (!loading && !user) {
+    return (
+      <AppShell>
+        <div className="mx-auto max-w-md text-center glass rounded-2xl p-10">
+          <Sparkles className="mx-auto h-8 w-8 text-primary" />
+          <h1 className="mt-4 text-2xl font-bold">Sign in to use AI Planner</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Generated plans are saved to your account.
+          </p>
+          <Link
+            to="/auth"
+            className="mt-6 inline-flex items-center justify-center rounded-xl gradient-primary px-6 py-3 text-sm font-semibold text-white"
+          >
+            Sign in / Sign up
+          </Link>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -72,7 +118,6 @@ function Planner() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Goal composer */}
         <div className="glass-strong rounded-2xl p-6 lg:col-span-2">
           <label className="text-xs font-medium text-muted-foreground">Today's goal</label>
           <div className="mt-2 flex flex-col gap-3 sm:flex-row">
@@ -84,7 +129,8 @@ function Planner() {
             />
             <button
               onClick={regenerate}
-              className="inline-flex items-center justify-center gap-2 rounded-xl gradient-primary px-5 py-3 text-sm font-medium text-white shadow-lg shadow-primary/30 transition-transform hover:scale-[1.02]"
+              disabled={generating}
+              className="inline-flex items-center justify-center gap-2 rounded-xl gradient-primary px-5 py-3 text-sm font-medium text-white shadow-lg shadow-primary/30 transition-transform hover:scale-[1.02] disabled:opacity-60"
             >
               <Wand2 className={cn("h-4 w-4", generating && "animate-spin")} />
               {generating ? "Generating…" : "Generate Plan"}
@@ -93,22 +139,27 @@ function Planner() {
 
           <div className="mt-4 flex flex-wrap gap-2">
             {["Exam in 3 days", "Low energy day", "Group project", "Catch up mode"].map((c) => (
-              <button key={c} className="rounded-full bg-white/5 px-3 py-1 text-xs text-muted-foreground hover:bg-white/10">
+              <button
+                key={c}
+                onClick={() => setGoal((g) => (g ? `${g} · ${c}` : c))}
+                className="rounded-full bg-white/5 px-3 py-1 text-xs text-muted-foreground hover:bg-white/10"
+              >
                 + {c}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Daily score */}
         <div className="glass rounded-2xl p-6">
           <div className="text-xs text-muted-foreground">Daily optimization</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-4xl font-bold gradient-text">94</span>
+            <span className="text-4xl font-bold gradient-text">{plan.length ? 94 : 0}</span>
             <span className="text-xs text-muted-foreground">/ 100</span>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Balanced across priority, breaks and subject variety. Nice work.
+            {plan.length
+              ? "Balanced across priority, breaks and subject variety."
+              : "Generate a plan to see your daily score."}
           </p>
           <div className="mt-4 space-y-2">
             {[
@@ -118,17 +169,16 @@ function Planner() {
             ].map((m) => (
               <div key={m.l}>
                 <div className="flex justify-between text-[11px] text-muted-foreground">
-                  <span>{m.l}</span><span>{m.v}%</span>
+                  <span>{m.l}</span><span>{plan.length ? m.v : 0}%</span>
                 </div>
                 <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/5">
-                  <div className="h-full gradient-primary" style={{ width: `${m.v}%` }} />
+                  <div className="h-full gradient-primary" style={{ width: `${plan.length ? m.v : 0}%` }} />
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Schedule timeline */}
         <div className="glass rounded-2xl p-6 lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-semibold">Today's schedule</h2>
@@ -137,28 +187,37 @@ function Planner() {
             </button>
           </div>
 
-          <ol className="relative space-y-3 border-l border-white/10 pl-5">
-            {plan.map((b, i) => (
-              <li key={i} className="group relative animate-fade-up">
-                <span className={cn("absolute -left-[26px] top-3 h-2.5 w-2.5 rounded-full ring-4 ring-background", priorityDot(b.priority))} />
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:bg-white/10">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Clock className="h-3.5 w-3.5" /> {b.time} · {b.dur}
+          {plan.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-white/10 p-10 text-center text-sm text-muted-foreground">
+              No plan yet. Set your goal above and hit{" "}
+              <span className="text-primary">Generate Plan</span>.
+            </div>
+          ) : (
+            <ol className="relative space-y-3 border-l border-white/10 pl-5">
+              {plan.map((b) => (
+                <li key={b.id} className="group relative animate-fade-up">
+                  <span className={cn("absolute -left-[26px] top-3 h-2.5 w-2.5 rounded-full ring-4 ring-background", priorityDot(b.priority))} />
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4 transition hover:bg-white/10">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5" /> {b.time_label}
+                        {b.duration ? ` · ${b.duration}` : ""}
+                      </div>
+                      {b.tag && (
+                        <span className="rounded-full bg-gradient-to-r from-primary/30 to-accent/30 px-2.5 py-0.5 text-[10px] uppercase tracking-wide text-primary-foreground">
+                          {b.tag}
+                        </span>
+                      )}
                     </div>
-                    <span className="rounded-full bg-gradient-to-r from-primary/30 to-accent/30 px-2.5 py-0.5 text-[10px] uppercase tracking-wide text-primary-foreground">
-                      {b.tag}
-                    </span>
+                    <div className="mt-2 text-sm font-medium">{b.title}</div>
+                    {b.reason && <p className="mt-1 text-xs text-muted-foreground">{b.reason}</p>}
                   </div>
-                  <div className="mt-2 text-sm font-medium">{b.title}</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{b.why}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
 
-        {/* Recommendations */}
         <div className="glass rounded-2xl p-6">
           <h2 className="font-semibold">Smart recommendations</h2>
           <p className="text-xs text-muted-foreground">Based on your last 14 days</p>

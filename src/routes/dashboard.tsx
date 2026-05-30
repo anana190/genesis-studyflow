@@ -2,9 +2,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/AppShell";
 import {
   CheckCircle2, Circle, Clock, Flame, BookOpen, Calendar as CalIcon,
-  TrendingUp, Sparkles, ArrowUpRight,
+  TrendingUp, Sparkles, ArrowUpRight, Trash2, Plus,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
   BarChart, Bar, RadialBarChart, RadialBar, PolarAngleAxis,
@@ -41,25 +45,11 @@ const subjectData = [
 
 const progressData = [{ name: "progress", value: 76, fill: "url(#progressGrad)" }];
 
-const initialTasks = [
-  { id: 1, title: "Finish Calc problem set 4.2", subject: "Math", time: "45m", done: false, priority: "high" },
-  { id: 2, title: "Read Chapter 6 — Quantum Mechanics", subject: "Physics", time: "1h 20m", done: false, priority: "med" },
-  { id: 3, title: "Outline history essay", subject: "History", time: "30m", done: true, priority: "med" },
-  { id: 4, title: "Practice algorithms (Leetcode 3x)", subject: "CS", time: "1h", done: false, priority: "high" },
-  { id: 5, title: "Review Spanish vocab deck", subject: "Spanish", time: "20m", done: true, priority: "low" },
-];
-
 const deadlines = [
   { title: "Calculus Midterm", course: "MATH 201", days: 3, accent: "from-primary to-accent" },
   { title: "History Essay Due", course: "HIST 110", days: 5, accent: "from-accent to-primary" },
   { title: "CS Project Submission", course: "CS 161", days: 8, accent: "from-primary to-accent" },
   { title: "Physics Lab Report", course: "PHYS 220", days: 12, accent: "from-accent to-primary" },
-];
-
-const aiCards = [
-  { time: "9:00 — 10:30", title: "Deep work: Calculus integration", reason: "Highest cognitive load — schedule peak hours" },
-  { time: "11:00 — 11:45", title: "Active recall: Physics flashcards", reason: "Spaced repetition due today" },
-  { time: "2:30 — 4:00", title: "Build: CS project module", reason: "Deadline in 8 days · break into 2 sessions" },
 ];
 
 function priorityBadge(p: string) {
@@ -71,12 +61,121 @@ function priorityBadge(p: string) {
   return map[p];
 }
 
+type Task = {
+  id: string;
+  title: string;
+  subject: string | null;
+  time_estimate: string | null;
+  done: boolean;
+  priority: string;
+};
+
+type Block = {
+  id: string;
+  block_date: string;
+  time_label: string;
+  duration: string | null;
+  title: string;
+  tag: string | null;
+  priority: string;
+  reason: string | null;
+  sort_order: number;
+};
+
 function Dashboard() {
-  const [tasks, setTasks] = useState(initialTasks);
-  const toggle = (id: number) =>
-    setTasks((t) => t.map((x) => (x.id === id ? { ...x, done: !x.done } : x)));
+  const { user, loading } = useAuth();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [blocks, setBlocks] = useState<Block[]>([]);
+  const [newTitle, setNewTitle] = useState("");
+  const [newSubject, setNewSubject] = useState("");
+  const [newTime, setNewTime] = useState("");
+  const [newPriority, setNewPriority] = useState("med");
+  const [adding, setAdding] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const [{ data: t }, { data: b }] = await Promise.all([
+        supabase.from("tasks").select("*").order("created_at", { ascending: true }),
+        supabase
+          .from("schedule_blocks")
+          .select("*")
+          .order("block_date", { ascending: true })
+          .order("sort_order", { ascending: true }),
+      ]);
+      setTasks((t as Task[]) ?? []);
+      setBlocks((b as Block[]) ?? []);
+    })();
+  }, [user]);
 
   const completed = tasks.filter((t) => t.done).length;
+  const today = new Date().toISOString().slice(0, 10);
+  const todayBlocks = useMemo(() => blocks.filter((b) => b.block_date === today), [blocks, today]);
+  const blockDates = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const b of blocks) m[b.block_date] = (m[b.block_date] ?? 0) + 1;
+    return m;
+  }, [blocks]);
+
+  const toggle = async (id: string) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    setTasks((ts) => ts.map((x) => (x.id === id ? { ...x, done: !x.done } : x)));
+    const { error } = await supabase.from("tasks").update({ done: !task.done }).eq("id", id);
+    if (error) toast.error(error.message);
+  };
+
+  const remove = async (id: string) => {
+    setTasks((ts) => ts.filter((x) => x.id !== id));
+    const { error } = await supabase.from("tasks").delete().eq("id", id);
+    if (error) toast.error(error.message);
+  };
+
+  const addTask = async () => {
+    if (!newTitle.trim() || !user) return;
+    setAdding(true);
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert({
+        user_id: user.id,
+        title: newTitle.trim(),
+        subject: newSubject.trim() || null,
+        time_estimate: newTime.trim() || null,
+        priority: newPriority,
+      })
+      .select()
+      .single();
+    setAdding(false);
+    if (error) return toast.error(error.message);
+    setTasks((ts) => [...ts, data as Task]);
+    setNewTitle("");
+    setNewSubject("");
+    setNewTime("");
+    setNewPriority("med");
+    setShowAdd(false);
+    toast.success("Task added");
+  };
+
+  if (!loading && !user) {
+    return (
+      <AppShell>
+        <div className="mx-auto max-w-md text-center glass rounded-2xl p-10">
+          <Sparkles className="mx-auto h-8 w-8 text-primary" />
+          <h1 className="mt-4 text-2xl font-bold">Sign in to see your dashboard</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Your tasks, schedule, and progress are saved to your account.
+          </p>
+          <Link
+            to="/auth"
+            className="mt-6 inline-flex items-center justify-center rounded-xl gradient-primary px-6 py-3 text-sm font-semibold text-white"
+          >
+            Sign in / Sign up
+          </Link>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -182,24 +281,82 @@ function Dashboard() {
         <div className="glass rounded-2xl p-6 lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-semibold">Today's tasks</h2>
-            <button className="rounded-lg glass px-3 py-1.5 text-xs hover:bg-white/10">+ Add task</button>
+            <button
+              onClick={() => setShowAdd((s) => !s)}
+              className="rounded-lg glass px-3 py-1.5 text-xs hover:bg-white/10"
+            >
+              {showAdd ? "Cancel" : "+ Add task"}
+            </button>
           </div>
+          {showAdd && (
+            <div className="mb-4 grid gap-2 rounded-xl border border-white/10 bg-white/5 p-3 sm:grid-cols-[1fr_140px_100px_110px_auto]">
+              <input
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="Task title"
+                className="rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-primary/60"
+              />
+              <input
+                value={newSubject}
+                onChange={(e) => setNewSubject(e.target.value)}
+                placeholder="Subject"
+                className="rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-primary/60"
+              />
+              <input
+                value={newTime}
+                onChange={(e) => setNewTime(e.target.value)}
+                placeholder="45m"
+                className="rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-primary/60"
+              />
+              <select
+                value={newPriority}
+                onChange={(e) => setNewPriority(e.target.value)}
+                className="rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-primary/60"
+              >
+                <option value="high">High</option>
+                <option value="med">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <button
+                onClick={addTask}
+                disabled={adding || !newTitle.trim()}
+                className="inline-flex items-center justify-center gap-1 rounded-lg gradient-primary px-4 py-2 text-xs font-medium text-white disabled:opacity-50"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add
+              </button>
+            </div>
+          )}
+          {tasks.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-muted-foreground">
+              No tasks yet. Add one to start tracking your day.
+            </div>
+          ) : (
           <ul className="divide-y divide-white/5">
             {tasks.map((t) => (
-              <li key={t.id} className="flex items-center gap-3 py-3">
+              <li key={t.id} className="group flex items-center gap-3 py-3">
                 <button onClick={() => toggle(t.id)} className="text-primary">
                   {t.done ? <CheckCircle2 className="h-5 w-5" /> : <Circle className="h-5 w-5 text-muted-foreground" />}
                 </button>
                 <div className="flex-1 min-w-0">
                   <div className={cn("truncate text-sm", t.done && "line-through text-muted-foreground")}>{t.title}</div>
-                  <div className="text-xs text-muted-foreground">{t.subject} · {t.time}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {t.subject ?? "—"}{t.time_estimate ? ` · ${t.time_estimate}` : ""}
+                  </div>
                 </div>
                 <span className={cn("rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide", priorityBadge(t.priority))}>
                   {t.priority}
                 </span>
+                <button
+                  onClick={() => remove(t.id)}
+                  className="opacity-0 transition group-hover:opacity-100 text-muted-foreground hover:text-rose-300"
+                  aria-label="Delete task"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
               </li>
             ))}
           </ul>
+          )}
         </div>
 
         {/* Deadlines */}
@@ -266,15 +423,27 @@ function Dashboard() {
               <p className="text-xs text-muted-foreground">Optimized for today</p>
             </div>
           </div>
-          <div className="space-y-3">
-            {aiCards.map((c) => (
-              <div key={c.title} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <div className="text-xs text-primary">{c.time}</div>
-                <div className="mt-1 text-sm font-medium">{c.title}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{c.reason}</div>
-              </div>
-            ))}
-          </div>
+          {todayBlocks.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-xs text-muted-foreground">
+              No plan yet for today.
+              <Link to="/planner" className="mt-3 block text-primary hover:underline">
+                Generate one in AI Planner →
+              </Link>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {todayBlocks.slice(0, 4).map((c) => (
+                <div key={c.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="text-xs text-primary">
+                    {c.time_label}
+                    {c.duration ? ` · ${c.duration}` : ""}
+                  </div>
+                  <div className="mt-1 text-sm font-medium">{c.title}</div>
+                  {c.reason && <div className="mt-1 text-xs text-muted-foreground">{c.reason}</div>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Calendar mini */}
@@ -284,38 +453,67 @@ function Dashboard() {
               <CalIcon className="h-4 w-4 text-primary" />
               <h2 className="font-semibold">Study calendar</h2>
             </div>
-            <span className="text-xs text-muted-foreground">December 2026</span>
+            <span className="text-xs text-muted-foreground">
+              {new Date().toLocaleString("en-US", { month: "long", year: "numeric" })}
+            </span>
           </div>
-          <div className="grid grid-cols-7 gap-2 text-center text-xs text-muted-foreground">
-            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-              <div key={i}>{d}</div>
-            ))}
-            {Array.from({ length: 35 }).map((_, i) => {
-              const day = i - 2;
-              const valid = day > 0 && day <= 31;
-              const intensity = valid ? ((day * 7) % 100) / 100 : 0;
-              const isToday = day === 12;
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    "aspect-square rounded-lg text-xs grid place-items-center transition",
-                    !valid && "opacity-0",
-                    isToday && "ring-2 ring-primary",
-                  )}
-                  style={{
-                    background: valid
-                      ? `linear-gradient(135deg, oklch(0.68 0.22 295 / ${0.1 + intensity * 0.5}), oklch(0.65 0.20 250 / ${0.05 + intensity * 0.4}))`
-                      : "transparent",
-                  }}
-                >
-                  {valid ? day : ""}
-                </div>
-              );
-            })}
-          </div>
+          <CalendarGrid blockDates={blockDates} />
         </div>
       </div>
     </AppShell>
+  );
+}
+
+function CalendarGrid({ blockDates }: { blockDates: Record<string, number> }) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const firstDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayDay = now.getDate();
+  const totalCells = Math.ceil((firstDow + daysInMonth) / 7) * 7;
+  const maxCount = Math.max(1, ...Object.values(blockDates));
+
+  return (
+    <div className="grid grid-cols-7 gap-2 text-center text-xs text-muted-foreground">
+      {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+        <div key={i}>{d}</div>
+      ))}
+      {Array.from({ length: totalCells }).map((_, i) => {
+        const day = i - firstDow + 1;
+        const valid = day > 0 && day <= daysInMonth;
+        const dateStr = valid
+          ? `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+          : "";
+        const count = valid ? blockDates[dateStr] ?? 0 : 0;
+        const intensity = count / maxCount;
+        const isToday = day === todayDay;
+        return (
+          <div
+            key={i}
+            title={count ? `${count} block${count > 1 ? "s" : ""}` : ""}
+            className={cn(
+              "aspect-square rounded-lg text-xs grid place-items-center transition relative",
+              !valid && "opacity-0",
+              isToday && "ring-2 ring-primary",
+            )}
+            style={{
+              background: valid
+                ? count > 0
+                  ? `linear-gradient(135deg, oklch(0.68 0.22 295 / ${0.25 + intensity * 0.55}), oklch(0.65 0.20 250 / ${0.15 + intensity * 0.45}))`
+                  : "oklch(1 0 0 / 0.04)"
+                : "transparent",
+            }}
+          >
+            {valid ? day : ""}
+            {count > 0 && (
+              <span className="absolute bottom-1 right-1 text-[8px] font-semibold text-white/90">
+                {count}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
